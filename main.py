@@ -38,12 +38,12 @@ async def subscribe():
 
 
 # Функция бота для получения цены
-async def send_price(message: Message):
+async def send_price(message: Message, bot: Bot):
     if last_price:
         msg = f"${last_price}"
     else:
         msg = "Price data is not available yet."
-    await message.reply(msg)
+    await bot.send_message(message.chat.id, msg)
 
 
 # Основная асинхронная функция
@@ -52,15 +52,18 @@ async def main():
     dp = Dispatcher()
 
     # Обработчик команды /price
-    @dp.message(Command("price"))
+    @dp.message(Command("p"))
     async def handle_price(message: Message):
-        await send_price(message)
+        await send_price(message, bot)
 
     # Запуск бота в фоновом режиме
-    asyncio.create_task(dp.start_polling(bot))
+    task_bot = asyncio.create_task(dp.start_polling(bot))
 
     # Подключение к WebSocket для получения цен
-    await subscribe()
+    task_websocket = asyncio.create_task(subscribe())
+
+    # Ожидание завершения обеих задач
+    await asyncio.gather(task_bot, task_websocket)
 
 
 if __name__ == "__main__":
