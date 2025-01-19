@@ -1,51 +1,66 @@
-import aiohttp
 import asyncio
-from datetime import datetime
+import json
+import websockets
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message
-from settings import API_TOKEN, BOT_TOKEN
+from settings import BOT_TOKEN
 
 
-async def get_trump_info():
-    """
-    Асинхронная функция для получения информации о цене TRUMP.
-    """
-
-    headers = {"X-CMC_PRO_API_KEY": API_TOKEN}
-    params = {"id": 35336, "convert": "USD"}
-    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
-
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, params=params, headers=headers) as response:
-            response.raise_for_status()  # Проверка на ошибки
-            data = await response.json()  # Асинхронно получаем JSON-ответ
-            price = data["data"]["35336"]["quote"]["USD"]["price"]
-            last_updated = data["data"]["35336"]["quote"]["USD"]["last_updated"]
-            return price, datetime.strptime(
-                last_updated, "%Y-%m-%dT%H:%M:%S.%fZ"
-            ).strftime("%H:%M:%S %d-%m-%Y")
+# Переменная для хранения последней полученной цены
+last_price = None
 
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+# Функция для обработки сообщений WebSocket
+async def on_message(websocket):
+    global last_price
+    async for message in websocket:
+        data = json.loads(message)
+        price = data.get("p")
+        if price:
+            last_price = price  # Обновляем последнюю цену
 
 
-@dp.message(Command("price"))
+# Функция для подписки на WebSocket
+async def subscribe():
+    uri = "wss://fstream.binance.com/ws/trumpusdt@aggTrade"
+    async with websockets.connect(uri) as websocket:
+        # Подписка на стрим
+        subscription_message = {
+            "method": "SUBSCRIBE",
+            "params": ["trumpusdt@aggTrade"],
+            "id": 1,
+        }
+        await websocket.send(json.dumps(subscription_message))
+
+        # Обработка сообщений
+        await on_message(websocket)
+
+
+# Функция бота для получения цены
 async def send_price(message: Message):
-    try:
-        price, last_updated = (
-            await get_trump_info()
-        )  # Используем await для асинхронного вызова
-        msg = f"Price: ${price:.3f}\nLast updated: {last_updated}"
-    except Exception as e:
-        msg = f"Error: {e}"
+    if last_price:
+        msg = f"${last_price}"
+    else:
+        msg = "Price data is not available yet."
     await message.reply(msg)
 
 
+# Основная асинхронная функция
 async def main():
-    print("Bot is running...")
-    await dp.start_polling(bot)
+    bot = Bot(token=BOT_TOKEN)
+    dp = Dispatcher()
+
+    # Обработчик команды /price
+    @dp.message(Command("price"))
+    async def handle_price(message: Message):
+        await send_price(message)
+
+    # Запуск бота в фоновом режиме
+    asyncio.create_task(dp.start_polling(bot))
+
+    # Подключение к WebSocket для получения цен
+    await subscribe()
 
 
 if __name__ == "__main__":
