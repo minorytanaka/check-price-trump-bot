@@ -1,0 +1,14 @@
+version: "3.10"
+
+services:
+  trump:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trump
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    restart: always
+
